@@ -1,0 +1,97 @@
+/* ── Layout ──────────────────────────────────────────────────── */
+html { scroll-behavior: smooth; }
+body { margin: 0; background: #f0f0f0; }
+
+.page-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ── Masthead ────────────────────────────────────────────────── */
+.pf-v6-c-masthead {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  background: #151515;
+  color: #fff;
+}
+.pf-v6-c-masthead__brand { font-size: 18px; font-weight: 700; color: #fff; }
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+.sidebar {
+  position: fixed;
+  top: 48px;
+  left: 0;
+  width: 250px;
+  height: calc(100vh - 48px);
+  background: #212427;
+  color: #d2d2d2;
+  overflow-y: auto;
+  z-index: 100;
+  padding: 16px 0;
+}
+.sidebar .pf-v6-c-nav__section-title {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 8px 16px 4px;
+}
+.sidebar .pf-v6-c-nav__link {
+  color: #d2d2d2;
+  padding: 5px 16px 5px 24px;
+  font-size: 14px;
+  text-decoration: none;
+  display: block;
+  border-left: 3px solid transparent;
+}
+.sidebar .pf-v6-c-nav__link:hover {
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+}
+.sidebar .pf-v6-c-nav__link.pf-m-current {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  border-left-color: #06c;
+}
+
+/* ── Main content ────────────────────────────────────────────── */
+.main-content {
+  margin-left: 250px;
+  margin-top: 48px;
+  flex: 1;
+  padding: 24px 32px;
+  max-width: 1280px;
+  background: #f0f0f0;
+  min-height: calc(100vh - 48px);
+}
+
+/* ── Page title ──────────────────────────────────────────────── */
+.page-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 2px;
+}
+.page-subtitle {
+  font-size: 14px;
+  color: #6a6e73;
+  margin: 0 0 16px;
+}
+
+/* ── Section title ───────────────────────────────────────────── */
+.section-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 12px;
+}
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+  .main-content { margin-left: 0; }
+}
