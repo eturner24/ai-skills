@@ -73,7 +73,7 @@ export function render(data) {
 }
 
 export function init(data) {
-  const STORAGE_KEY = 'rhoai-todo-state';
+  const STORAGE_KEY = 'pt-todo-state';
   let dirty = false;
 
   function loadLocalState() {

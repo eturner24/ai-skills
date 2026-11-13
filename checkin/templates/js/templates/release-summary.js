@@ -50,7 +50,7 @@ function renderReleases(releases) {
           </div>
         </div>
         <div class="release-breakdown-body">
-          <div class="status-row">${statusItems}</div>
+          <div class="status-row"><span class="status-row-label">Tickets:</span>${statusItems}</div>
           <div class="progress-bar-container"><div class="progress-bar-fill" style="width: ${r.progressPercent}%"></div></div>
           ${r.progressText ? `<div class="progress-text">${r.progressText}</div>` : ''}
         </div>

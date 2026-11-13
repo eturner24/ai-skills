@@ -17,6 +17,14 @@ export default {
       title: "To-Do List"
     },
     {
+      id: "newsfeed",
+      route: "#/newsfeed",
+      dataFile: "newsfeed.md",
+      css: ["css/newsfeed.css"],
+      template: "newsfeed",
+      title: "Newsfeed"
+    },
+    {
       id: "quarterly-connection",
       route: "#/quarterly-connection",
       dataFile: "data/quarterly-connection.js",
@@ -47,6 +55,7 @@ export default {
       items: [
         { id: "project-tracking", label: "Project Tracking" },
         { id: "todo-list", label: "To-Do List" },
+        { id: "newsfeed", label: "Newsfeed" },
         { id: "quarterly-connection", label: "Quarterly Connection" }
       ]
     },

@@ -18,18 +18,43 @@ read -p "Directory for project tracking files [~/Documents/project-tracking]: " 
 PROJECT_DIR="${PROJECT_DIR:-$HOME/Documents/project-tracking}"
 PROJECT_DIR="${PROJECT_DIR/#\~/$HOME}"
 
-# -- Docs repo -------------------------------------------------------------
-read -p "Path to your docs git repo (leave blank to skip git activity checks): " DOCS_REPO
-DOCS_REPO="${DOCS_REPO/#\~/$HOME}"
+# -- Git repo --------------------------------------------------------------
+read -p "Path to a git repo to check for activity (leave blank to skip): " GIT_REPO
+GIT_REPO="${GIT_REPO/#\~/$HOME}"
 
-# -- Extra monitored directories -------------------------------------------
-read -p "Additional directories to monitor for .md status files (comma-separated, or blank): " EXTRA_DIRS_INPUT
+# -- Workspace directories -------------------------------------------------
+echo ""
+echo "Workspace directories hold drafts, notes, or review files that never reach Jira."
+echo "The check-in lists files changed in them since the last check-in."
+read -p "Workspace directories to scan (comma-separated, or blank): " WORKSPACE_DIRS_INPUT
+
+# -- Email -----------------------------------------------------------------
+echo ""
+echo "-- Email scan --"
+echo "The email scan needs a Gmail MCP server in Claude Code that provides"
+echo "the search_emails and read_email tools (server name 'gmail')."
+read -p "Scan email during check-ins? [y/N]: " PREF_EMAIL
+EMAIL_FOCUS=""
+if [[ "$PREF_EMAIL" =~ ^[Yy] ]]; then
+  echo "Describe what email is relevant to you, in plain English (or blank for the default)."
+  echo "Example: 'Release announcements from the platform team, meeting notes, and review requests'"
+  read -p "Email focus: " EMAIL_FOCUS
+fi
+
+# -- Newsfeed --------------------------------------------------------------
+read -p "Days to keep undated newsfeed items [14]: " RETENTION_DAYS
+RETENTION_DAYS="${RETENTION_DAYS:-14}"
+if ! [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]]; then
+  echo "Error: retention days must be a number."
+  exit 1
+fi
 
 # -- Jira configuration ---------------------------------------------------
 echo ""
 echo "-- Jira Configuration --"
 read -p "Default Jira host [your-org.atlassian.net]: " DEFAULT_JIRA_HOST
 DEFAULT_JIRA_HOST="${DEFAULT_JIRA_HOST:-your-org.atlassian.net}"
+TICKET_BASE_URL="https://${DEFAULT_JIRA_HOST}/browse/"
 
 echo ""
 echo "Enter your Jira project prefixes and their hosts."
@@ -45,26 +70,26 @@ while true; do
   [ -z "$entry" ] && break
   prefix="${entry%%=*}"
   host="${entry#*=}"
-  if [ -z "$prefix" ] || [ -z "$host" ]; then
+  if [ -z "$prefix" ] || [ -z "$host" ] || [ "$prefix" == "$entry" ]; then
     echo "  Invalid format. Use PREFIX=host"
     continue
   fi
-  PREFIX_HOST_MAP="${PREFIX_HOST_MAP}    \"${prefix}\": \"${host}\",\n"
+  PREFIX_HOST_MAP="${PREFIX_HOST_MAP}    \"${prefix}\": \"${host}\",
+"
   JIRA_PREFIXES="${JIRA_PREFIXES}${prefix}-*, "
   if [[ ! "$JIRA_HOSTS" == *"$host"* ]]; then
     JIRA_HOSTS="${JIRA_HOSTS}${host}, "
   fi
 done
 
-# Clean trailing commas
 JIRA_PREFIXES="${JIRA_PREFIXES%, }"
 JIRA_HOSTS="${JIRA_HOSTS%, }"
 
-# Default if nothing entered
 if [ -z "$JIRA_PREFIXES" ]; then
   JIRA_PREFIXES="PROJ-*"
   JIRA_HOSTS="$DEFAULT_JIRA_HOST"
-  PREFIX_HOST_MAP="    \"PROJ\": \"${DEFAULT_JIRA_HOST}\",\n"
+  PREFIX_HOST_MAP="    \"PROJ\": \"${DEFAULT_JIRA_HOST}\",
+"
 fi
 
 read -p "Story points custom field ID [customfield_10028]: " STORY_POINTS_FIELD
@@ -74,15 +99,14 @@ STORY_POINTS_FIELD="${STORY_POINTS_FIELD:-customfield_10028}"
 echo ""
 echo "-- What should /checkin surface from Jira? --"
 echo ""
-echo "Your doc tickets may be linked to parent epics, engineering tickets,"
+echo "Your tickets may be linked to parent epics, engineering tickets,"
 echo "or other upstream work. Tell the skill what context is useful to you."
 echo ""
 
-read -p "Check parent/epic ticket status? (e.g., is the eng feature done yet) [Y/n]: " PREF_PARENT
+read -p "Check parent epics and sibling tickets? (e.g., is the eng feature done yet) [Y/n]: " PREF_PARENT
 read -p "Check linked tickets? (e.g., related eng or QE tickets) [y/N]: " PREF_LINKED
 read -p "Report fix version / target release from Jira? [Y/n]: " PREF_FIX_VERSION
 read -p "Report ticket labels? [y/N]: " PREF_LABELS
-read -p "Report assignee? [y/N]: " PREF_ASSIGNEE
 
 echo ""
 echo "Anything else the check-in should look for or report on?"
@@ -90,69 +114,53 @@ echo "Describe in plain English (or blank to skip)."
 echo "Examples:"
 echo "  - 'Flag tickets with no description -- I need eng specs before I can start'"
 echo "  - 'Show the last Jira comment if it was added since my last check-in'"
-echo "  - 'Check if the parent epic has a refinement doc linked'"
 echo ""
 read -p "Custom instructions: " PREF_CUSTOM
 
-# Build the preferences block for the skill
 JIRA_PREFS=""
 
 if [[ ! "$PREF_PARENT" =~ ^[Nn] ]]; then
   JIRA_PREFS="${JIRA_PREFS}
-- **Parent/epic tickets**: For each ticket, check if it has a parent epic or issue link of type \"is child of\" / \"belongs to epic\". Fetch the parent's status and summary. Report the parent status alongside the ticket (e.g., \"Parent EPIC-123: In Progress\"). Flag if the parent is blocked or unstarted -- that may affect your ability to start doc work."
+Parent epics and sibling tickets. Your own tickets may stay static while the parent epic and sibling engineering tickets move. For each tracked ticket:
+1. Read the \`parent\` field from step 2. If a parent exists, fetch it: \`/rest/api/2/issue/{parent_key}?fields=status,summary\`.
+2. Search for siblings: JQL \`parent = {parent_key}\` with \`fields: [\"status\", \"summary\", \"updated\"]\`.
+3. Report siblings that changed status or were updated since the last check-in.
+
+In the report, include a Related Jira Activity section. Show the parent status for each tracked ticket and whether it changed, and recently updated siblings with their status. Flag siblings that moved to Done, Resolved, or Closed, because they may unblock your work.
+"
 fi
 
 if [[ "$PREF_LINKED" =~ ^[Yy] ]]; then
   JIRA_PREFS="${JIRA_PREFS}
-- **Linked tickets**: Fetch issue links (\"blocks\", \"is blocked by\", \"relates to\") for each ticket. Report any linked tickets whose status changed since last check-in or that are in a blocking state."
+Linked tickets. Fetch issue links (\"blocks\", \"is blocked by\", \"relates to\") for each ticket. Report linked tickets whose status changed since the last check-in or that are in a blocking state.
+"
 fi
 
 if [[ ! "$PREF_FIX_VERSION" =~ ^[Nn] ]]; then
   JIRA_PREFS="${JIRA_PREFS}
-- **Fix version / target release**: Include the \`fixVersions\` field when fetching tickets. Report the target release alongside each ticket and flag any mismatches with where the ticket sits in the tracking page."
+Fix version. Include the \`fixVersions\` field when you fetch tickets. Report the target release of each ticket. Flag a ticket when its fix version does not match its release section on the tracking page.
+"
 fi
 
 if [[ "$PREF_LABELS" =~ ^[Yy] ]]; then
   JIRA_PREFS="${JIRA_PREFS}
-- **Labels**: Include the \`labels\` field when fetching tickets. Report labels in the diff output so you can spot tag changes."
-fi
-
-if [[ "$PREF_ASSIGNEE" =~ ^[Yy] ]]; then
-  JIRA_PREFS="${JIRA_PREFS}
-- **Assignee**: Include the \`assignee\` field when fetching tickets. Report who each ticket is assigned to and flag any unassigned tickets."
+Labels. Include the \`labels\` field when you fetch tickets. Report label changes.
+"
 fi
 
 if [ -n "$PREF_CUSTOM" ]; then
   JIRA_PREFS="${JIRA_PREFS}
-- **Custom**: ${PREF_CUSTOM}"
+Custom: ${PREF_CUSTOM}
+"
 fi
 
 # -- Release configuration ------------------------------------------------
 echo ""
 echo "-- Release Configuration --"
-echo "Set up your initial release for the tracking pages."
-echo ""
-
 read -p "Current release name (e.g. '2.5 GA', 'Q3 Sprint'): " RELEASE_1_NAME
 RELEASE_1_NAME="${RELEASE_1_NAME:-Release 1}"
 read -p "Short ID for this release (lowercase, no spaces, e.g. '25ga'): " RELEASE_1_ID
 RELEASE_1_ID="${RELEASE_1_ID:-release1}"
-
-# -- Build extra dirs section for SKILL.md ---------------------------------
-EXTRA_DIRS_SECTION=""
-if [ -n "$EXTRA_DIRS_INPUT" ]; then
-  IFS=',' read -ra DIRS <<< "$EXTRA_DIRS_INPUT"
-  for dir in "${DIRS[@]}"; do
-    dir=$(echo "$dir" | xargs)  # trim whitespace
-    dir="${dir/#\~/$HOME}"
-    EXTRA_DIRS_SECTION="${EXTRA_DIRS_SECTION}
-**Additional directory** (\`${dir}\`):
-- Check for new \`.md\` files containing the tag \"status\"
-- Run: \`find ${dir} -name \"*.md\" -newer ${dir}/.last-checkin 2>/dev/null | xargs grep -l \"status\" 2>/dev/null\`
-- Skip everything else in this directory
-"
-  done
-fi
 
 # -- Summary ---------------------------------------------------------------
 echo ""
@@ -161,17 +169,14 @@ echo "  Configuration Summary"
 echo "============================================"
 echo "  Product name:       $PRODUCT_NAME"
 echo "  Project directory:  $PROJECT_DIR"
-echo "  Docs repo:          ${DOCS_REPO:-<none>}"
-echo "  Extra directories:  ${EXTRA_DIRS_INPUT:-<none>}"
+echo "  Git repo:           ${GIT_REPO:-<none>}"
+echo "  Workspace dirs:     ${WORKSPACE_DIRS_INPUT:-<none>}"
+echo "  Email scan:         $([[ "$PREF_EMAIL" =~ ^[Yy] ]] && echo on || echo off)"
+echo "  Newsfeed retention: $RETENTION_DAYS days"
 echo "  Default Jira host:  $DEFAULT_JIRA_HOST"
 echo "  Jira prefixes:      $JIRA_PREFIXES"
 echo "  Story points field: $STORY_POINTS_FIELD"
 echo "  Release:            $RELEASE_1_NAME ($RELEASE_1_ID)"
-if [ -n "$JIRA_PREFS" ]; then
-echo "  Jira preferences:   (configured)"
-else
-echo "  Jira preferences:   (defaults)"
-fi
 echo "============================================"
 echo ""
 read -p "Proceed with installation? [Y/n]: " confirm
@@ -180,18 +185,14 @@ if [[ "$confirm" =~ ^[Nn] ]]; then
   exit 0
 fi
 
-# -- Resolve script directory ----------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CURRENT_YEAR=$(date +%Y)
 
-# -- Create project directory and subdirectories ---------------------------
 mkdir -p "$PROJECT_DIR/css" "$PROJECT_DIR/js/templates" "$PROJECT_DIR/data"
 echo "Created $PROJECT_DIR"
 
-# -- Current year ----------------------------------------------------------
-CURRENT_YEAR=$(date +%Y)
-
-# -- Install static files (no substitution needed) -------------------------
-for static_file in css/layout.css css/project-tracking.css css/todo-list.css css/release-summary.css css/quarterly-connection.css js/app.js js/templates/shell.js js/templates/project-tracking.js js/templates/todo-list.js js/templates/release-summary.js js/templates/release-summary-all.js js/templates/quarterly-connection.js todo-state.json; do
+# -- Install static files (no substitution) --------------------------------
+for static_file in css/layout.css css/project-tracking.css css/todo-list.css css/release-summary.css css/quarterly-connection.css css/newsfeed.css js/app.js js/templates/shell.js js/templates/project-tracking.js js/templates/todo-list.js js/templates/release-summary.js js/templates/release-summary-all.js js/templates/quarterly-connection.js js/templates/newsfeed.js todo-state.json; do
   target="$PROJECT_DIR/$static_file"
   if [ -f "$target" ]; then
     echo "  Skipping $static_file (already exists)"
@@ -201,7 +202,6 @@ for static_file in css/layout.css css/project-tracking.css css/todo-list.css css
   fi
 done
 
-# -- Install serve.sh ------------------------------------------------------
 if [ -f "$PROJECT_DIR/serve.sh" ]; then
   echo "  Skipping serve.sh (already exists)"
 else
@@ -211,64 +211,117 @@ else
 fi
 
 # -- Install templated files (with substitution) ---------------------------
-for template in index.html data/nav.js data/project-tracking.js data/todo-list.js data/release-summary-current.js data/release-summary-all.js data/quarterly-connection.js daily-status.md; do
-  target="$PROJECT_DIR/$(basename "$template" | sed 's/-current//')"
-  # Keep the full path for data/ files
-  if [[ "$template" == data/* ]]; then
-    target="$PROJECT_DIR/$template"
-  else
-    target="$PROJECT_DIR/$template"
-  fi
+export PRODUCT_NAME CURRENT_YEAR RELEASE_1_NAME RELEASE_1_ID TICKET_BASE_URL
+
+fill() {
+  # Replace named {{PLACEHOLDERS}} from environment variables. Other {{...}} tokens stay.
+  python3 - "$1" "$2" <<'PY'
+import os, sys
+src, dst = sys.argv[1], sys.argv[2]
+s = open(src).read()
+for k in ["PRODUCT_NAME", "CURRENT_YEAR", "RELEASE_1_NAME", "RELEASE_1_ID", "TICKET_BASE_URL"]:
+    s = s.replace("{{%s}}" % k, os.environ.get(k, ""))
+open(dst, "w").write(s)
+PY
+}
+
+for template in index.html data/nav.js data/project-tracking.js data/todo-list.js data/release-summary-current.js data/release-summary-all.js data/quarterly-connection.js daily-status.md newsfeed.md; do
+  target="$PROJECT_DIR/$template"
   if [ -f "$target" ]; then
     echo "  Skipping $template (already exists)"
   else
-    sed \
-      -e "s|{{PRODUCT_NAME}}|${PRODUCT_NAME}|g" \
-      -e "s|{{CURRENT_YEAR}}|${CURRENT_YEAR}|g" \
-      -e "s|{{RELEASE_1_NAME}}|${RELEASE_1_NAME}|g" \
-      -e "s|{{RELEASE_1_ID}}|${RELEASE_1_ID}|g" \
-      "$SCRIPT_DIR/templates/$template" > "$target"
+    fill "$SCRIPT_DIR/templates/$template" "$target"
     echo "  Installed $template"
   fi
 done
 
+# -- Build skill sections --------------------------------------------------
+if [ -n "$GIT_REPO" ]; then
+  GIT_SECTION="Git repo (\`${GIT_REPO}\`):
+- \`git -C ${GIT_REPO} log --oneline --since=\"<last-checkin-timestamp>\" --all\` to list commits since the last check-in.
+- \`git -C ${GIT_REPO} branch --show-current\` to show the active branch.
+- \`git -C ${GIT_REPO} status --short\` to see uncommitted changes.
+- Report the branch, the commits since the last check-in, and ticket IDs in commit messages."
+else
+  GIT_SECTION=""
+fi
+
+WORKSPACE_DIRS_SECTION=""
+if [ -n "$WORKSPACE_DIRS_INPUT" ]; then
+  WORKSPACE_DIRS_SECTION="Scan these directories for files changed since the last check-in. Use one \`find <dir> -type f -newer {{PROJECT_DIR}}/.last-checkin\` pass per directory. If \`.last-checkin\` is missing, use \`-mtime -7\`. Skip binaries, caches, and \`.git\`. Read only the changed files that look like work products (drafts, reviews, plans, notes).
+"
+  IFS=',' read -ra DIRS <<< "$WORKSPACE_DIRS_INPUT"
+  for dir in "${DIRS[@]}"; do
+    dir=$(echo "$dir" | xargs)
+    dir="${dir/#\~/$HOME}"
+    WORKSPACE_DIRS_SECTION="${WORKSPACE_DIRS_SECTION}
+- \`${dir}\`"
+  done
+fi
+
+if [ -z "$GIT_SECTION" ] && [ -z "$WORKSPACE_DIRS_SECTION" ]; then
+  GIT_SECTION="No workspaces are configured. Skip this step."
+fi
+
+if [[ "$PREF_EMAIL" =~ ^[Yy] ]]; then
+  EMAIL_TOOLS=", mcp__gmail__search_emails, mcp__gmail__read_email"
+  EMAIL_FOCUS="${EMAIL_FOCUS:-Release and planning announcements, meeting notes, calendar changes, Jira notifications, review requests, and questions addressed to the user.}"
+  EMAIL_SECTION="Search email for all messages received since the last check-in.
+
+1. Search with \`after:YYYY/MM/DD\`, using the date from \`.last-checkin\`.
+2. Read each relevant email body with \`read_email\`. Skip newsletters, marketing, and automated noise.
+3. Relevant email: ${EMAIL_FOCUS}
+4. Jira notifications: extract the ticket ID, summary, what changed, and who changed it. If the ticket is not in the snapshot, flag it as a possible new backlog item.
+5. Chat notifications (for example, Slack email digests): skip direct messages. Report channel content as context only. Never suggest replying, because you cannot see whether the user already replied.
+6. Meeting notes: extract decisions, dates, and action items assigned to the user.
+7. Report the findings in the Email news section (step 3). Omit the section if nothing is relevant."
+else
+  EMAIL_TOOLS=""
+  EMAIL_SECTION="Email scan is off. Skip this step."
+fi
+
 # -- Install Claude Code skill ---------------------------------------------
 SKILL_DIR="$HOME/.claude/skills/checkin"
 mkdir -p "$SKILL_DIR"
+if [ -f "$SKILL_DIR/SKILL.md" ]; then
+  cp "$SKILL_DIR/SKILL.md" "$SKILL_DIR/SKILL.md.bak"
+  echo "  Backed up existing skill to $SKILL_DIR/SKILL.md.bak"
+fi
 
-sed \
-  -e "s|{{PRODUCT_NAME}}|${PRODUCT_NAME}|g" \
-  -e "s|{{PROJECT_DIR}}|${PROJECT_DIR}|g" \
-  -e "s|{{DOCS_REPO}}|${DOCS_REPO:-/path/to/your/docs/repo}|g" \
-  -e "s|{{JIRA_HOSTS}}|${JIRA_HOSTS}|g" \
-  -e "s|{{JIRA_PREFIXES}}|${JIRA_PREFIXES}|g" \
-  -e "s|{{DEFAULT_JIRA_HOST}}|${DEFAULT_JIRA_HOST}|g" \
-  -e "s|{{STORY_POINTS_FIELD}}|${STORY_POINTS_FIELD}|g" \
-  "$SCRIPT_DIR/SKILL.md" > "$SKILL_DIR/SKILL.md.tmp"
+export PROJECT_DIR GIT_SECTION WORKSPACE_DIRS_SECTION EMAIL_SECTION EMAIL_TOOLS RETENTION_DAYS \
+  JIRA_HOSTS JIRA_PREFIXES DEFAULT_JIRA_HOST STORY_POINTS_FIELD PREFIX_HOST_MAP JIRA_PREFS
 
-# Replace multi-line placeholders
-python3 -c "
-import sys
-content = open('$SKILL_DIR/SKILL.md.tmp').read()
-map_entries = '''$(echo -e "$PREFIX_HOST_MAP")'''
-content = content.replace('{{PREFIX_HOST_MAP}}', map_entries.rstrip().rstrip(','))
-extra = '''${EXTRA_DIRS_SECTION}'''
-if extra.strip():
-    content = content.replace('{{EXTRA_DIRS_SECTION}}', extra.strip())
-else:
-    content = content.replace('{{EXTRA_DIRS_SECTION}}', '')
-jira_prefs = '''${JIRA_PREFS}'''
-if jira_prefs.strip():
-    content = content.replace('{{JIRA_PREFERENCES}}', jira_prefs.strip())
-else:
-    content = content.replace('{{JIRA_PREFERENCES}}', 'No additional Jira context configured. Only fetch status, story points, and summary for each ticket.')
-open('$SKILL_DIR/SKILL.md', 'w').write(content)
-" 2>/dev/null
-
-rm -f "$SKILL_DIR/SKILL.md.tmp"
+python3 - "$SCRIPT_DIR/SKILL.md" "$SKILL_DIR/SKILL.md" <<'PY'
+import os, sys
+src, dst = sys.argv[1], sys.argv[2]
+s = open(src).read()
+e = os.environ
+prefs = e.get("JIRA_PREFS", "").strip() or "No related Jira context is configured. Skip this step."
+values = {
+    # Multi-line sections first, so placeholders inside them get filled too.
+    "JIRA_PREFERENCES": prefs,
+    "EMAIL_SECTION": e.get("EMAIL_SECTION", ""),
+    "GIT_SECTION": e.get("GIT_SECTION", ""),
+    "WORKSPACE_DIRS_SECTION": e.get("WORKSPACE_DIRS_SECTION", ""),
+    "PREFIX_HOST_MAP": e.get("PREFIX_HOST_MAP", "").rstrip().rstrip(","),
+    "EMAIL_TOOLS": e.get("EMAIL_TOOLS", ""),
+    "PRODUCT_NAME": e.get("PRODUCT_NAME", ""),
+    "PROJECT_DIR": e.get("PROJECT_DIR", ""),
+    "RETENTION_DAYS": e.get("RETENTION_DAYS", "14"),
+    "JIRA_HOSTS": e.get("JIRA_HOSTS", ""),
+    "JIRA_PREFIXES": e.get("JIRA_PREFIXES", ""),
+    "DEFAULT_JIRA_HOST": e.get("DEFAULT_JIRA_HOST", ""),
+    "STORY_POINTS_FIELD": e.get("STORY_POINTS_FIELD", ""),
+    "TICKET_BASE_URL": e.get("TICKET_BASE_URL", ""),
+}
+for k, v in values.items():
+    s = s.replace("{{%s}}" % k, v)
+while "\n\n\n" in s:
+    s = s.replace("\n\n\n", "\n\n")
+open(dst, "w").write(s)
+PY
 echo "  Installed skill to $SKILL_DIR/SKILL.md"
 
-# -- Reminder --------------------------------------------------------------
 echo ""
 echo "============================================"
 echo "  Setup complete!"
@@ -278,7 +331,7 @@ echo "Next steps:"
 echo ""
 echo "  1. Add your Jira credentials to ~/.env:"
 echo "     export JIRA_EMAIL=your-email@example.com"
-echo "     export JIRA_AUTH_TOKEN=your-api-token"
+echo "     export JIRA_API_TOKEN=your-api-token"
 echo ""
 echo "  2. Start the local server and open the dashboard:"
 echo "     cd \"$PROJECT_DIR\" && ./serve.sh"
@@ -286,14 +339,4 @@ echo "     Then open http://localhost:8765 in your browser."
 echo ""
 echo "  3. Add your tickets to data/project-tracking.js,"
 echo "     then run /checkin in Claude Code to sync."
-echo ""
-echo "  Installed files:"
-echo "    $PROJECT_DIR/index.html"
-echo "    $PROJECT_DIR/serve.sh"
-echo "    $PROJECT_DIR/css/ (5 stylesheets)"
-echo "    $PROJECT_DIR/js/ (6 template modules + router)"
-echo "    $PROJECT_DIR/data/ (6 data files)"
-echo "    $PROJECT_DIR/daily-status.md"
-echo "    $PROJECT_DIR/todo-state.json"
-echo "    $SKILL_DIR/SKILL.md"
 echo ""

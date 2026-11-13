@@ -4,6 +4,7 @@ import { render as renderReleaseSummaryAll } from './templates/release-summary-a
 import { render as renderQuarterlyConnection } from './templates/quarterly-connection.js';
 import { render as renderProjectTracking, init as initProjectTracking } from './templates/project-tracking.js';
 import { render as renderTodoList, init as initTodoList } from './templates/todo-list.js';
+import { parse as parseNewsfeed, render as renderNewsfeed, init as initNewsfeed } from './templates/newsfeed.js';
 
 import navData from '../data/nav.js';
 
@@ -13,6 +14,7 @@ const TEMPLATES = {
   'quarterly-connection': { render: renderQuarterlyConnection },
   'project-tracking':    { render: renderProjectTracking, init: initProjectTracking },
   'todo-list':           { render: renderTodoList, init: initTodoList },
+  'newsfeed':            { parse: parseNewsfeed, render: renderNewsfeed, init: initNewsfeed },
 };
 
 const dataCache = {};
@@ -56,11 +58,20 @@ async function handleRoute() {
     document.title = `${page.title} — ${appTitle}`;
     loadCSS(page.css);
 
-    const data = await loadData(page.dataFile);
     const tmpl = TEMPLATES[page.template];
+    let data;
+    if (page.dataFile.endsWith('.md')) {
+      // Markdown sources are fetched fresh on every visit (no module cache).
+      const resp = await fetch(page.dataFile, { cache: 'no-store' });
+      if (!resp.ok) throw new Error(`Could not load ${page.dataFile} (${resp.status})`);
+      data = tmpl.parse(await resp.text());
+    } else {
+      data = await loadData(page.dataFile);
+    }
 
+    const mainHtml = tmpl.render(data);
     document.getElementById('sidebar').innerHTML = renderSidebar(navData, page.id, data.sidebarNav);
-    document.getElementById('main-content').innerHTML = tmpl.render(data);
+    document.getElementById('main-content').innerHTML = mainHtml;
 
     initSidebarScrolling();
 
