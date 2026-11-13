@@ -117,6 +117,12 @@
   gap: 24px;
   margin-bottom: 12px;
 }
+.status-row-label {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+}
 .status-item {
   display: flex;
   align-items: center;

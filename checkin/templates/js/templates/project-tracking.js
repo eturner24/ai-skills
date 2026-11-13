@@ -1,6 +1,6 @@
 const STATUS_CLASSES = {
   'Done': 'pf-m-green', 'In progress': 'pf-m-blue', 'Not started': 'pf-m-grey',
-  'Review': 'pf-m-blue', 'Blocked': 'pf-m-red', 'Ongoing': 'pf-m-teal',
+  'Review': 'pf-m-purple', 'Blocked': 'pf-m-red', 'Ongoing': 'pf-m-teal',
   'Handed off': 'pf-m-purple', 'Ready': 'pf-m-teal', 'Not needed': 'pf-m-grey',
   'Closed as duplicate': 'pf-m-grey',
 };
@@ -40,10 +40,28 @@ function childrenTable(children) {
   </table>`;
 }
 
+function mrLink(url) {
+  if (!url) return '';
+  const match = url.match(/merge_requests\/(\d+)/);
+  const label = match ? `!${match[1]}` : 'MR';
+  return ` <a href="${url}" class="mr-link">${label}</a>`;
+}
+
+function rollupSp(t) {
+  // Epic SP = own sp if set; otherwise the sum of child SP when any child has SP.
+  if (t.sp != null) return t.sp;
+  if (t.children && t.children.length) {
+    const childSps = t.children.map(c => c.sp).filter(v => v != null);
+    if (childSps.length) return childSps.reduce((a, b) => a + b, 0);
+  }
+  return null;
+}
+
 function ticketRow(t) {
+  const sp = rollupSp(t);
   const jiraTd = `<td><a href="${t.jiraUrl}">${t.jira}</a></td>`;
-  const descTd = `<td>${t.description}</td>`;
-  const spTd = `<td>${t.sp != null ? t.sp : ''}</td>`;
+  const descTd = `<td>${t.description}${mrLink(t.mrUrl)}</td>`;
+  const spTd = `<td>${sp != null ? sp : ''}</td>`;
   const statusTd = `<td>${statusLabel(t.status)}</td>`;
   return `<tr class="main-row${t.children && t.children.length ? ' has-details' : ''}">${jiraTd}${descTd}${spTd}${statusTd}</tr>`;
 }
@@ -82,10 +100,10 @@ function renderFlatTable(tickets) {
   let cols, rowFn;
   if (hasSP) {
     cols = '<th class="col-jira">Jira</th><th>Description</th><th class="col-sp">SP</th><th class="col-status">Status</th>';
-    rowFn = t => `<tr class="main-row"><td><a href="${t.jiraUrl}">${t.jira}</a></td><td>${t.description}</td><td>${t.sp != null ? t.sp : ''}</td><td>${statusLabel(t.status)}</td></tr>`;
+    rowFn = t => `<tr class="main-row"><td><a href="${t.jiraUrl}">${t.jira}</a></td><td>${t.description}${mrLink(t.mrUrl)}</td><td>${t.sp != null ? t.sp : ''}</td><td>${statusLabel(t.status)}</td></tr>`;
   } else {
     cols = '<th class="col-jira">Jira</th><th>Description</th><th class="col-status">Status</th>';
-    rowFn = t => `<tr class="main-row"><td><a href="${t.jiraUrl}">${t.jira}</a></td><td>${t.description}</td><td>${statusLabel(t.status)}</td></tr>`;
+    rowFn = t => `<tr class="main-row"><td><a href="${t.jiraUrl}">${t.jira}</a></td><td>${t.description}${mrLink(t.mrUrl)}</td><td>${statusLabel(t.status)}</td></tr>`;
   }
 
   return `<table class="pf-v6-c-table pf-m-compact pf-m-grid-md" role="grid">

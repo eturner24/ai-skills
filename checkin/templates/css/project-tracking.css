@@ -113,6 +113,15 @@ tr.detail-row:hover td { background: var(--pf-t--global--background--color--seco
 .child-table .col-sp { width: 40px; text-align: center; }
 .child-table .col-status { width: 140px; text-align: center; }
 
+/* ── MR links ────────────────────────────────────────────────── */
+.mr-link {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pf-t--global--text--color--link--default) !important;
+  white-space: nowrap;
+}
+
 /* ── Non-Jira section ────────────────────────────────────────── */
 .non-jira-section {
   padding: 12px 16px 16px;
